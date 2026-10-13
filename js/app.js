@@ -239,6 +239,7 @@ function bindControls(){
   window.addEventListener('keydown', e=>{ if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
     if(e.key==='+'||e.key==='='){ S.w/=1.5; draw(); } if(e.key==='-'){ S.w*=1.5; draw(); } if(e.key==='r') $('reset').click(); });
   new ResizeObserver(()=>draw()).observe(viewer);
+  document.querySelector('a[href="#about"]').addEventListener('click', e=>{ e.preventDefault(); $('about').scrollIntoView({behavior:'smooth'}); });
 }
 function syncControls(){
   $('mode').value=S.mode; $('palette').value=S.palette; $('iter').value=S.iter; $('iterv').textContent=S.iter;
