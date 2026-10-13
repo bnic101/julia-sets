@@ -354,6 +354,7 @@ function pushHash(){
 function readHash(){
   if(!location.hash || location.hash.length<2) return false;
   const q=new URLSearchParams(location.hash.slice(1));
+  if(!q.has('p') && !q.has('c')) return false;   // plain anchor such as #about
   const p=PRESETS.find(x=>x.id===q.get('p'));
   if(p) loadPreset(p, q.has('v')); else { currentPreset=null; }
   const num=(k,def)=>{ const v=parseFloat(q.get(k)); return Number.isFinite(v)?v:def; };
