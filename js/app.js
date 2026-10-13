@@ -164,16 +164,49 @@ function draw(){ if(raf) return; raf=requestAnimationFrame(()=>{ raf=0; if(!R) r
 function toPixel(z){ const W=view.width,H=view.height, sc=S.w/W; return [(z[0]-S.cx)/sc + W/2, H/2 - (z[1]-S.cy)/sc]; }
 function toComplex(px,py){ const W=view.width,H=view.height, sc=S.w/W; return [S.cx + (px-W/2)*sc, S.cy - (py-H/2)*sc]; }
 
+let orbitShown=0, orbitTimer=0;
 function drawOverlay(){
   const ctx=overlay.getContext('2d'); ctx.clearRect(0,0,overlay.width,overlay.height);
   if(!orbit) return;
-  ctx.lineWidth=1.2*DPR; ctx.strokeStyle='rgba(255,220,120,0.85)'; ctx.fillStyle='#ffd978';
-  ctx.beginPath();
-  orbit.forEach((z,i)=>{ const p=toPixel(z); if(i===0) ctx.moveTo(p[0],p[1]); else ctx.lineTo(p[0],p[1]); });
-  ctx.stroke();
-  orbit.forEach((z,i)=>{ const p=toPixel(z); const r=(i===0?4:2.3)*DPR; ctx.beginPath(); ctx.arc(p[0],p[1],r,0,6.283); ctx.fillStyle=i===0?'#ff6b6b':'#ffd978'; ctx.fill(); });
+  const pts=orbit.slice(0, Math.max(1, orbitShown)).map(toPixel);
+  const W=overlay.width, H=overlay.height, inView=p=>p[0]>-50&&p[0]<W+50&&p[1]>-50&&p[1]<H+50;
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  // path: dark halo under a bright line, so it reads on both dark and paper backgrounds
+  for(const [lw,col] of [[5*DPR,'rgba(0,0,0,0.65)'],[2*DPR,'#ffd23f']]){
+    ctx.lineWidth=lw; ctx.strokeStyle=col; ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(p[0],p[1]); else ctx.lineTo(p[0],p[1]); });
+    ctx.stroke();
+  }
+  // points, numbered
+  ctx.font=`${12*DPR}px JetBrains Mono, monospace`; ctx.textBaseline='middle';
+  pts.forEach((p,i)=>{
+    if(!inView(p)) return;
+    const r=(i===0?6:4)*DPR;
+    ctx.beginPath(); ctx.arc(p[0],p[1],r,0,6.283); ctx.fillStyle=i===0?'#ff3b3b':'#ffd23f'; ctx.fill();
+    ctx.lineWidth=1.5*DPR; ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.stroke();
+    if(i<10 || i===pts.length-1){ const tx=p[0]+r+3*DPR, ty=p[1]-r;
+      ctx.lineWidth=3*DPR; ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.strokeText(String(i),tx,ty);
+      ctx.fillStyle='#fff'; ctx.fillText(String(i),tx,ty); }
+  });
+  // if the orbit has left the frame, mark the exit direction
+  const last=pts[pts.length-1];
+  if(pts.length>1 && !inView(last)){
+    const prev=pts[pts.length-2]; const ang=Math.atan2(last[1]-prev[1], last[0]-prev[0]);
+    // clip the last segment to the frame so the arrow sits where the path leaves
+    const m=12*DPR; let t=1;
+    const dx=last[0]-prev[0], dy=last[1]-prev[1];
+    if(dx>0) t=Math.min(t,(W-m-prev[0])/dx); if(dx<0) t=Math.min(t,(m-prev[0])/dx);
+    if(dy>0) t=Math.min(t,(H-m-prev[1])/dy); if(dy<0) t=Math.min(t,(m-prev[1])/dy);
+    t=Math.max(0,t); const ex=prev[0]+dx*t, ey=prev[1]+dy*t;
+    ctx.save(); ctx.translate(ex,ey); ctx.rotate(ang); ctx.beginPath(); ctx.moveTo(10*DPR,0); ctx.lineTo(-6*DPR,7*DPR); ctx.lineTo(-6*DPR,-7*DPR); ctx.closePath();
+    ctx.fillStyle='#ffd23f'; ctx.fill(); ctx.lineWidth=1.5*DPR; ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.stroke(); ctx.restore();
+  }
 }
-function updateHud(){ hud.textContent=`centre ${C.fmt([S.cx,S.cy],6)}   width ${S.w.toPrecision(4)}   ${S.iter} it`; }
+function animateOrbit(){
+  clearInterval(orbitTimer); orbitShown=1; drawOverlay(); updateHud();
+  orbitTimer=setInterval(()=>{ orbitShown++; drawOverlay(); if(!orbit||orbitShown>=orbit.length) clearInterval(orbitTimer); }, 110);
+}
+function updateHud(){ hud.textContent=`centre ${C.fmt([S.cx,S.cy],6)}   width ${S.w.toPrecision(4)}   ${S.iter} it` + (orbit||!$('orbit').checked ? '' : '   ·   click a point to trace its orbit'); }
 
 /* ---------- interaction ---------- */
 const ptrs=new Map(); let dragStart=null, pinch=null;
@@ -209,12 +242,12 @@ viewer.addEventListener('dblclick', e=>{
   const z=toComplex(px,py); S.cx=z[0]; S.cy=z[1]; S.w/=2.5; draw(); pushHash();
 });
 function onClick(e){
-  if(!$('orbit').checked){ orbit=null; drawOverlay(); $('orbitinfo').textContent=''; return; }
+  if(!$('orbit').checked){ orbit=null; drawOverlay(); updateHud(); $('orbitinfo').textContent=''; return; }
   const rect=viewer.getBoundingClientRect(); const px=(e.clientX-rect.left)*DPR, py=(e.clientY-rect.top)*DPR;
   const z0=toComplex(px,py); const f=mapF(S); const pts=[z0]; let z=z0, esc=null;
   for(let n=1;n<=400;n++){ z=f(z); pts.push(z); if(C.abs(z)>50){ esc=n; break; } }
-  orbit=pts.slice(0,esc?esc+1:120); drawOverlay();
-  const first=pts.slice(0,8).map(C.fmt).join('  →  ');
+  orbit=pts.slice(0,esc?esc+1:120); animateOrbit();
+  const first=pts.slice(0,8).map((z,i)=>`z${i}=${C.fmt(z,4)}`).join('  →  ');
   $('orbitinfo').textContent = `orbit of z₀ = ${C.fmt(z0)}\n${esc?`escapes after ${esc} steps`:'still bounded after 400 steps'}\n${first}${pts.length>8?'  →  …':''}`;
 }
 
@@ -225,7 +258,7 @@ function bindControls(){
   $('iter').oninput=e=>{ S.iter=+e.target.value; $('iterv').textContent=S.iter; draw(); pushHashSoon(); };
   $('thick').oninput=e=>{ S.thick=+e.target.value; $('thickv').textContent=S.thick.toFixed(1); draw(); pushHashSoon(); };
   $('freq').oninput=e=>{ S.freq=+e.target.value; $('freqv').textContent=S.freq.toFixed(2); draw(); pushHashSoon(); };
-  $('orbit').onchange=()=>{ if(!$('orbit').checked){ orbit=null; drawOverlay(); $('orbitinfo').textContent=''; } };
+  $('orbit').onchange=()=>{ if(!$('orbit').checked){ orbit=null; drawOverlay(); $('orbitinfo').textContent=''; } updateHud(); };
   $('reset').onclick=()=>{ if(currentPreset){ Object.assign(S, currentPreset.view); } else { S.cx=0;S.cy=0;S.w=4; } orbit=null; draw(); pushHash(); };
   $('save').onclick=()=>{ R.render(S,false); const a=document.createElement('a'); a.download=(currentPreset?currentPreset.id:'julia')+'.png'; a.href=view.toDataURL('image/png'); a.click(); };
   $('share').onclick=async()=>{ pushHash(); try{ await navigator.clipboard.writeText(location.href); $('share').textContent='Copied'; setTimeout(()=>$('share').textContent='Copy link',1200);}catch(_){ prompt('Link', location.href);} };
